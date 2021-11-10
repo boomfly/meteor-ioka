@@ -14,7 +14,7 @@ class Ioka
     config = getConfig()
     # Маршруты для обработки REST запросов от Ioka Callback
     pathname = "/api/#{config.callbackPathname}"
-    # @_registerHandler pathname
+    @_registerHandler pathname, false
 
   config: (cfg) ->
     config = getConfig()
@@ -26,19 +26,33 @@ class Ioka
 
   onNotification: (cb) -> @_onNotification = cb
 
+  # Orders
+  getOrderByExternalId: (externalId) -> await @_request "orders", {external_id: externalId}, 'GET'
   createOrder: (params) ->
-    config = getConfig()
+    config = @config()
     siteUrl = config.siteUrl.replace(/\/$/, '')
     params.currency = params.currency or config.currency
     # params.language = params.language or config.language
-    await @_request 'orders', params
+    await @_request 'orders', params, 'POST'
+  createOrderAccessToken: (orderId) -> await @_request "orders/#{orderId}/access-tokens", 'POST'
+  getOrderById: (orderId) -> await @_request "orders/#{orderId}", {}, 'GET'
+  getOrderEvents: (orderId) -> await @_request "orders/#{orderId}/events", {}, 'GET'
 
   # Webhooks
   getWebhooks: (params) -> await @_request 'webhooks', params, 'GET'
-  createWebhook: (params) -> await @_request 'webhooks', params
+  createWebhook: (params) -> await @_request 'webhooks', params, 'POST'
   getWebhookById: (webhookId) -> await @_request "webhooks/#{webhookId}", {}, 'GET'
   deleteWebhookById: (webhookId) -> await @_request "webhooks/#{webhookId}", {}, 'DELETE'
   updateWebhookById: (webhookId, params) -> await @_request "webhooks/#{webhookId}", params, 'PATCH'
+
+  # Payments
+  createPayment: (orderId, params) -> await @_request "orders/#{orderId}/payments", params, 'POST'
+  getPaymentById: (orderId, paymentId) -> await @_request "orders/#{orderId}/payments/#{paymentId}", {}, 'GET'
+  capturePayment: (orderId, paymentId, params) -> await @_request "orders/#{orderId}/payments/#{paymentId}/capture", params, 'POST'
+  cancelPayment: (orderId, paymentId, params) -> await @_request "orders/#{orderId}/payments/#{paymentId}/cancel", params, 'POST'
+
+  # Refund
+  createRefund: (orderId, paymentId, params) -> await @_request "orders/#{orderId}/payments/#{paymentId}/refunds", params, 'POST'
 
   # Private methods
 
@@ -64,14 +78,14 @@ class Ioka
     # console.log 'IokaClient.request', response, response.headers, options
     await response.json()
 
-  _sign: (message, secret) -> crypto.createHmac('sha256', secret).update(message).digest('base64')
+  _sign: (message, secret) -> crypto.createHmac('sha256', secret).update(message).digest('hex')
 
   _updateWebhook: (pathname) ->
-    config = getConfig()
+    config = @config()
     pathname = "/api/#{config.callbackPathname}" unless pathname
     url = "#{config.siteUrl}#{pathname}"
     list = await @getWebhooks()
-    console.log 'Ioka._updateWebhook list response', list
+    console.log 'Ioka._updateWebhook list', list
 
     if list.code is 'Unauthorized'
       console.error 'Ioka._updateWebhook wrong secret key'
@@ -90,6 +104,7 @@ class Ioka
         events: WEBHOOK_EVENTS
       }
       console.log 'Ioka._updateWebhook create response', response
+      @_signatureSecret = response.key
       return
     
     item = list[0]
@@ -104,23 +119,29 @@ class Ioka
         events: WEBHOOK_EVENTS
       }
       console.log 'Ioka._updateWebhook update response', {response, url}
+    @_signatureSecret = item.key
     return
 
-  _registerHandler: (pathname) ->
-    config = getConfig()
+  _registerHandler: (pathname, updateWebhook = true) ->
+    config = @config()
     handlerIndex = WebApp.rawConnectHandlers.stack.findIndex (i) => i.handler is @_handler
     if handlerIndex > 0
       WebApp.rawConnectHandlers.stack.splice handlerIndex, 1
     WebApp.rawConnectHandlers.use pathname, @_handler
-    if config.secretKey
+    if config.secretKey and updateWebhook
       @_updateWebhook pathname
 
   # Webhooks handler
   _handler: (req, res, next) =>
-    config = getConfig()
+    config = @config()
     method = req.method
 
-    console.log 'Ioka.handler method', method, req.url
+    response = (code, message) ->
+      res.setHeader 'Content-Type', 'application/json'
+      res.writeHead code
+      res.end message
+
+    console.log 'Ioka.handler method', method, req.headers, req.url
 
     if method is 'POST'
       chunksLength = 0
@@ -128,7 +149,7 @@ class Ioka
 
       body = await new Promise (resolve, reject) ->
         req.on 'data', (chunk) ->
-          console.log 'Ioka.handler POST data chunk', chunk
+          # console.log 'Ioka.handler POST data chunk', chunk
           chunks.push(chunk)
           chunksLength += chunk.length
         req.on 'end', -> resolve Buffer.concat(chunks, chunksLength).toString('utf-8')
@@ -136,9 +157,7 @@ class Ioka
 
       unless body
         console.warn 'Ioka.handler: Empty POST body'
-        res.writeHead 400
-        res.end()
-        return
+        return response 400
 
       payload = body
       params = JSON.parse(body)
@@ -147,9 +166,7 @@ class Ioka
       payload = Object.fromEntries(url.searchParams)
       unless payload
         console.warn 'Ioka.handler: Empty GET query'
-        res.writeHead 400
-        res.end()
-        return
+        return response 400
       params = url.searchParams.toString()
 
     console.log 'Ioka.handler', payload, params
@@ -158,22 +175,38 @@ class Ioka
 
     unless signatureHeader
       console.warn 'Ioka.handler: Request without signature', {[SIGNATURE_HEADER_NAME]: signatureHeader}
-      res.setHeader 'Content-Type', 'application/json'
-      res.writeHead 401
-      res.end()
-      return
+      return response 401
 
+    # signature = @_sign payload, @_signatureSecret
     signature = @_sign payload, config.secretKey
 
-    if signature isnt signatureHeader
-      console.warn 'Ioka.handler: Wrong request signature. Hack possible', {signature, [SIGNATURE_HEADER_NAME]: signatureHeader}
-      res.setHeader 'Content-Type', 'application/json'
-      res.writeHead 401
-      res.end()
-      return
+    # TODO: signature generation algo
 
-    Ioka.onNotification?(params)
-    res.writeHead 200
-    res.end()
+    # if signature isnt signatureHeader
+    #   console.warn 'Ioka.handler: Wrong request signature. Hack possible', {
+    #     signatureSecret: @_signatureSecret
+    #     signature
+    #     [SIGNATURE_HEADER_NAME]: signatureHeader
+    #   }
+    #   return response 401
+
+    @_onNotification?(params)
+    return response 200
 
 export default Ioka = new Ioka
+
+signTest = ->
+  config = getConfig()
+  webhookSecret = Buffer.from('11cf6a7d5999eac284b117ebb7a443c6da9af8904cf99d5601e9c5287af6874b')
+  _sign = (message, secret) -> crypto.createHmac('sha256', secret).update(message).digest('hex')
+  payload = '{"event": "PAYMENT_CAPTURED", "order": {"id": "ord_QDNUK6JH11", "status": "PAID", "created_at": "2021-11-09T10:05:55.358023", "amount": 1050000, "currency": "KZT", "capture_method": "AUTO", "external_id": "hqH2B2rkqiWJDPH7X", "description": "\u041e\u043f\u043b\u0430\u0442\u0430 \u0431\u0440\u043e\u043d\u0438: eXqu5cXrufMsLeq3S", "extra_info": null, "due_date": null, "back_url": "https://42c9-2a03-32c0-3000-f0c0-81a5-bd88-91e9-381a.ngrok.io/accounts/my-bookings/eXqu5cXrufMsLeq3S", "success_url": null, "failure_url": null, "template": null}, "payment": {"id": "pay_L3INB0YJLE", "order_id": "ord_QDNUK6JH11", "status": "CAPTURED", "created_at": "2021-11-09T10:06:02.598026", "approved_amount": 1050000, "captured_amount": 1050000, "refunded_amount": 0, "processing_fee": 0.0, "payer": {"pan_masked": "555555******5599", "expiry_date": "12/24", "holder": "Holder", "payment_system": null, "emitter": null, "email": null, "phone": null, "customer_id": null, "card_id": null}}}'
+  signatureHeader = '65d3668da6a3568b75afeb7a3663e593a160b8f6d2d23a33a400a85d69d7fa44'
+  signatureWithMainSecret = _sign Buffer.from(payload), Buffer.from(config.secretKey)
+  signatureWithWebhookSecret = _sign Buffer.from(payload), webhookSecret
+  console.log 'signTest', {
+    signatureHeader
+    signatureWithMainSecret
+    signatureWithWebhookSecret
+  }
+
+# signTest()
