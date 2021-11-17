@@ -19,10 +19,13 @@ class Ioka
   config: (cfg) ->
     config = getConfig()
     return config unless cfg
+    handlerUpdated = false
     if cfg.callbackPathname and config.callbackPathname isnt cfg.callbackPathname
       pathname = "/api/#{cfg.callbackPathname}"
       @_registerHandler pathname
+      handlerUpdated = true
     Object.assign(config, cfg)
+    @_updateWebhook() unless handlerUpdated
 
   onNotification: (cb) -> @_onNotification = cb
 
@@ -33,7 +36,10 @@ class Ioka
     siteUrl = config.siteUrl.replace(/\/$/, '')
     params.currency = params.currency or config.currency
     # params.language = params.language or config.language
-    await @_request 'orders', params, 'POST'
+    response = await @_request 'orders', params, 'POST'
+    redirectUrl = @_getRedirectUrl response, params
+    response.redirectUrl = redirectUrl
+    response
   createOrderAccessToken: (orderId) -> await @_request "orders/#{orderId}/access-tokens", 'POST'
   getOrderById: (orderId) -> await @_request "orders/#{orderId}", {}, 'GET'
   getOrderEvents: (orderId) -> await @_request "orders/#{orderId}/events", {}, 'GET'
@@ -78,6 +84,17 @@ class Ioka
     # console.log 'IokaClient.request', response, response.headers, options
     await response.json()
 
+  _getRedirectUrl: (response, options) ->
+    config = @config()
+    if config.isTest
+      checkoutBaseUrl = 'https://stage-checkout.ioka.kz'
+    else
+      checkoutBaseUrl = 'https://checkout.ioka.kz'
+    redirectUrl = "#{checkoutBaseUrl}/orders/#{response.order.id}?orderAccessToken=#{response.order_access_token}"
+    if options?.isSaveCard
+      redirectUrl = "#{checkoutBaseUrl}/customers/#{response.customer_id}?customerAccessToken=#{response.customer_access_token}"
+    redirectUrl
+
   _sign: (message, secret) -> crypto.createHmac('sha256', secret).update(message).digest('hex')
 
   _updateWebhook: (pathname) ->
@@ -85,7 +102,7 @@ class Ioka
     pathname = "/api/#{config.callbackPathname}" unless pathname
     url = "#{config.siteUrl}#{pathname}"
     list = await @getWebhooks()
-    console.log 'Ioka._updateWebhook list', list
+    # console.log 'Ioka._updateWebhook list', list
 
     if list.code is 'Unauthorized'
       console.error 'Ioka._updateWebhook wrong secret key'
@@ -103,7 +120,7 @@ class Ioka
         url
         events: WEBHOOK_EVENTS
       }
-      console.log 'Ioka._updateWebhook create response', response
+      # console.log 'Ioka._updateWebhook create response', response
       @_signatureSecret = response.key
       return
     
@@ -118,7 +135,7 @@ class Ioka
         url
         events: WEBHOOK_EVENTS
       }
-      console.log 'Ioka._updateWebhook update response', {response, url}
+      # console.log 'Ioka._updateWebhook update response', {response, url}
     @_signatureSecret = item.key
     return
 
