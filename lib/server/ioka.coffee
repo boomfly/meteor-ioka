@@ -25,7 +25,7 @@ class Ioka
       @_registerHandler pathname
       handlerUpdated = true
     Object.assign(config, cfg)
-    @_updateWebhook() unless handlerUpdated
+    # @_updateWebhook() unless handlerUpdated
 
   onNotification: (cb) -> @_onNotification = cb
 
@@ -145,8 +145,8 @@ class Ioka
     if handlerIndex > 0
       WebApp.rawConnectHandlers.stack.splice handlerIndex, 1
     WebApp.rawConnectHandlers.use pathname, @_handler
-    if config.secretKey and updateWebhook
-      @_updateWebhook pathname
+    # if config.secretKey and updateWebhook
+    #   @_updateWebhook pathname
 
   # Webhooks handler
   _handler: (req, res, next) =>
