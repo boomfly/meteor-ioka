@@ -81,8 +81,18 @@ class Ioka
     else
       options.body = JSON.stringify(params) if params
     response = await fetch url, options
-    # console.log 'IokaClient.request', response, response.headers, options
-    await response.json()
+    json = await response.json()
+    # text = await response.text()
+    # replacer = (key, value) ->
+    #   if value instanceof Map
+    #     return {
+    #       dataType: 'Map',
+    #       value: Array.from(value.entries()), # or with spread: value: [...value]
+    #     }
+    #   else
+    #     return value
+    # console.log 'IokaClient.request', {response, headers: Array.from(response.headers.entries()), options, json}
+    json
 
   _getRedirectUrl: (response, options) ->
     config = @config()
@@ -95,27 +105,43 @@ class Ioka
       redirectUrl = "#{checkoutBaseUrl}/customers/#{response.customer_id}?customerAccessToken=#{response.customer_access_token}"
     redirectUrl
 
-  _sign: (message, secret) -> crypto.createHmac('sha256', secret).update(message).digest('hex')
+  _sign1: (message, secret) -> crypto.createHmac('sha256', secret).update(message).digest('hex')
+
+  _formatPayload: (json) ->
+    payload = JSON.parse(json, (k, v) -> return v)
+    # console.log('Ioka::_formatPayload', {payload})
+    keys = []
+    space = null
+    JSON.stringify(payload, (key, value) -> keys.push(key); return value)
+    keys.sort()
+    JSON.stringify(payload, keys, space)
+
+  _sign: (payload, secret) ->
+    data = @_formatPayload(payload)
+    # console.log('Ioka::_sign', {data})
+    hmac = crypto.createHmac 'sha256', secret
+    hmac.update Buffer.from(data, 'utf-8')
+    hmac.digest 'hex'
 
   _updateWebhook: (pathname) ->
     config = @config()
     pathname = "/api/#{config.callbackPathname}" unless pathname
     url = "#{config.siteUrl}#{pathname}"
     list = await @getWebhooks()
-    # console.log 'Ioka._updateWebhook list', list
+    # console.log 'Ioka._updateWebhook list', {list}
 
-    if list.code is 'Unauthorized'
+    if list?.code is 'Unauthorized'
       console.error 'Ioka._updateWebhook wrong secret key'
       return Promise.resolve()
 
-    if list.length > 1
+    if list?.length > 1
       promises = []
       for i in [1..list.length - 1]
         item = list[i]
         promises.push @deleteWebhookById(item.id)
       await Promise.all promises
 
-    if list.length is 0
+    if list?.length is 0
       response = await @createWebhook {
         url
         events: WEBHOOK_EVENTS
@@ -124,19 +150,20 @@ class Ioka
       @_signatureSecret = response.key
       return
     
-    item = list[0]
-    needUpdate = false
-    if _.intersection(WEBHOOK_EVENTS, list.events).length > 0
-      needUpdate = true
-    if item.url isnt url
-      needUpdate = true
-    if needUpdate
-      response = await @updateWebhookById item.id, {
-        url
-        events: WEBHOOK_EVENTS
-      }
-      # console.log 'Ioka._updateWebhook update response', {response, url}
-    @_signatureSecret = item.key
+    if list?.length > 0
+      item = list[0]
+      needUpdate = false
+      if _.intersection(WEBHOOK_EVENTS, list.events).length > 0
+        needUpdate = true
+      if item.url isnt url
+        needUpdate = true
+      if needUpdate
+        response = await @updateWebhookById item.id, {
+          url
+          events: WEBHOOK_EVENTS
+        }
+        # console.log 'Ioka._updateWebhook update response', {response, url}
+      @_signatureSecret = item.key
     return
 
   _registerHandler: (pathname, updateWebhook = true) ->
@@ -214,12 +241,51 @@ export default Ioka = new Ioka
 
 signTest = ->
   config = getConfig()
-  webhookSecret = Buffer.from('11cf6a7d5999eac284b117ebb7a443c6da9af8904cf99d5601e9c5287af6874b')
-  _sign = (message, secret) -> crypto.createHmac('sha256', secret).update(message).digest('hex')
-  payload = '{"event": "PAYMENT_CAPTURED", "order": {"id": "ord_QDNUK6JH11", "status": "PAID", "created_at": "2021-11-09T10:05:55.358023", "amount": 1050000, "currency": "KZT", "capture_method": "AUTO", "external_id": "hqH2B2rkqiWJDPH7X", "description": "\u041e\u043f\u043b\u0430\u0442\u0430 \u0431\u0440\u043e\u043d\u0438: eXqu5cXrufMsLeq3S", "extra_info": null, "due_date": null, "back_url": "https://42c9-2a03-32c0-3000-f0c0-81a5-bd88-91e9-381a.ngrok.io/accounts/my-bookings/eXqu5cXrufMsLeq3S", "success_url": null, "failure_url": null, "template": null}, "payment": {"id": "pay_L3INB0YJLE", "order_id": "ord_QDNUK6JH11", "status": "CAPTURED", "created_at": "2021-11-09T10:06:02.598026", "approved_amount": 1050000, "captured_amount": 1050000, "refunded_amount": 0, "processing_fee": 0.0, "payer": {"pan_masked": "555555******5599", "expiry_date": "12/24", "holder": "Holder", "payment_system": null, "emitter": null, "email": null, "phone": null, "customer_id": null, "card_id": null}}}'
-  signatureHeader = '65d3668da6a3568b75afeb7a3663e593a160b8f6d2d23a33a400a85d69d7fa44'
-  signatureWithMainSecret = _sign Buffer.from(payload), Buffer.from(config.secretKey)
-  signatureWithWebhookSecret = _sign Buffer.from(payload), webhookSecret
+  webhookSecret = '11cf6a7d5999eac284b117ebb7a443c6da9af8904cf99d5601e9c5287af6874b'
+  # _sign = (message, secret) -> crypto.createHmac('sha256', secret).update(message).digest('hex')
+  body1 = '{"event": "PAYMENT_CAPTURED", "order": {"id": "ord_QDNUK6JH11", "status": "PAID", "created_at": "2021-11-09T10:05:55.358023", "amount": 1050000, "currency": "KZT", "capture_method": "AUTO", "external_id": "hqH2B2rkqiWJDPH7X", "description": "\u041e\u043f\u043b\u0430\u0442\u0430 \u0431\u0440\u043e\u043d\u0438: eXqu5cXrufMsLeq3S", "extra_info": null, "due_date": null, "back_url": "https://42c9-2a03-32c0-3000-f0c0-81a5-bd88-91e9-381a.ngrok.io/accounts/my-bookings/eXqu5cXrufMsLeq3S", "success_url": null, "failure_url": null, "template": null}, "payment": {"id": "pay_L3INB0YJLE", "order_id": "ord_QDNUK6JH11", "status": "CAPTURED", "created_at": "2021-11-09T10:06:02.598026", "approved_amount": 1050000, "captured_amount": 1050000, "refunded_amount": 0, "processing_fee": 0.0, "payer": {"pan_masked": "555555******5599", "expiry_date": "12/24", "holder": "Holder", "payment_system": null, "emitter": null, "email": null, "phone": null, "customer_id": null, "card_id": null}}}'
+  body = """{
+    "event": "PAYMENT_CAPTURED",
+    "order": {
+        "id": "ord_D76ZMGHY1M", "status": "PAID",
+        "created_at": "2021-11-09T11:44:57.131585",
+        "amount": 1050000, "currency": "KZT",
+        "capture_method": "AUTO",
+        "external_id": "MjjeuWCfRejSEzvkB",
+        "description": "Оплата брони: eXqu5cXrufMsLeq3S",
+        "extra_info": null,
+        "due_date": null,
+        "back_url": "https://42c9-2a03-32c0-3000-f0c0-81a5-bd88-91e9-381a.ngrok.io/accounts/my-bookings/eXqu5cXrufMsLeq3S",
+        "success_url": null,
+        "failure_url": null,
+        "template": null
+    },
+    "payment": {
+        "id": "pay_GZRWOO4OWU",
+        "order_id": "ord_D76ZMGHY1M",
+        "status": "CAPTURED",
+        "created_at": "2021-11-09T11:45:06.279855",
+        "approved_amount": 1050000,
+        "captured_amount": 1050000,
+        "refunded_amount": 0,
+        "processing_fee": 0.1,
+        "payer": {
+            "pan_masked": "555555******5599",
+            "expiry_date": "12/24",
+            "holder": "Holder",
+            "payment_system": null,
+            "emitter": null,
+            "email": null,
+            "phone": null,
+            "customer_id": null,
+            "card_id": null
+        }
+    }
+  }"""
+  # signatureHeader = '65d3668da6a3568b75afeb7a3663e593a160b8f6d2d23a33a400a85d69d7fa44'
+  signatureHeader = 'ded0a5bf68b02c5d663729bd8dab932af1ac9426c9347e9a5c42ebea1f7d91e8'
+  signatureWithMainSecret = Ioka._sign1(body1, config.secretKey)
+  signatureWithWebhookSecret = Ioka._sign1(body1, webhookSecret)
   console.log 'signTest', {
     signatureHeader
     signatureWithMainSecret
