@@ -3,7 +3,7 @@ export PACKAGE_NAME = if module.id.startsWith('/node_modules/meteor/') then modu
 export SIGNATURE_HEADER_NAME = 'x-signature'
 
 export WEBHOOK_EVENTS = [
-  'ORDER_PAID'
+  # 'ORDER_PAID'
   # 'ORDER_UNPAID'
   # 'PAYMENT_PENDING'
   'PAYMENT_APPROVED'

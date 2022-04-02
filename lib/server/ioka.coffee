@@ -82,6 +82,9 @@ class Ioka
       options.body = JSON.stringify(params) if params
     response = await fetch url, options
     json = await response.json()
+    # console.log('ioka::_request', {url, options, json})
+    if json?.code is 'Unauthorized'
+      throw new Meteor.Error(401, 'errors.unauthorized')
     # text = await response.text()
     # replacer = (key, value) ->
     #   if value instanceof Map
@@ -95,6 +98,7 @@ class Ioka
     json
 
   _getRedirectUrl: (response, options) ->
+    console.log('ioka::_getRedirectUrl', {response, options})
     config = @config()
     if config.isTest
       checkoutBaseUrl = 'https://stage-checkout.ioka.kz'
@@ -141,12 +145,12 @@ class Ioka
         promises.push @deleteWebhookById(item.id)
       await Promise.all promises
 
-    if list?.length is 0
+    if not list or list.length < 1
       response = await @createWebhook {
         url
         events: WEBHOOK_EVENTS
       }
-      # console.log 'Ioka._updateWebhook create response', response
+      console.log 'Ioka._updateWebhook create response', response
       @_signatureSecret = response.key
       return
     
