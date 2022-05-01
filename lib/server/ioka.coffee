@@ -81,6 +81,7 @@ class Ioka
     else
       options.body = JSON.stringify(params) if params
     response = await fetch url, options
+    # console.log('ioka', response)
     json = await response.json()
     # console.log('ioka::_request', {url, options, json})
     if json?.code is 'Unauthorized'
@@ -225,8 +226,8 @@ class Ioka
       console.warn 'Ioka.handler: Request without signature', {[SIGNATURE_HEADER_NAME]: signatureHeader}
       return response 401
 
-    # signature = @_sign payload, @_signatureSecret
-    signature = @_sign payload, config.secretKey
+    signature = @_sign payload, @_signatureSecret
+    # signature = @_sign payload, config.secretKey
 
     # TODO: signature generation algo
 
