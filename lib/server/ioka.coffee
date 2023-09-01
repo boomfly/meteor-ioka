@@ -61,6 +61,7 @@ class Ioka
   createRefund: (orderId, paymentId, params) -> await @_request "orders/#{orderId}/payments/#{paymentId}/refunds", params, 'POST'
 
   # Customers
+  getCustomer: (customerId) -> await @_request "customers/#{customerId}", params, 'GET'
   getCustomers: (params) -> await @_request "customers", params, 'GET'
   createCustomer: (params) -> await @_request "customers", params, 'POST'
   getCards: (customerId) -> await @_request "customers/#{customerId}/cards", {}, 'GET'
