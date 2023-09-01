@@ -60,6 +60,11 @@ class Ioka
   # Refund
   createRefund: (orderId, paymentId, params) -> await @_request "orders/#{orderId}/payments/#{paymentId}/refunds", params, 'POST'
 
+  # Customers
+  getCustomers: (params) -> await @_request "customers", params, 'GET'
+  createCustomer: (params) -> await @_request "customers", params, 'POST'
+  getCards: (customerId) -> await @_request "customers/#{customerId}/cards", {}, 'GET'
+
   # Private methods
 
   _request: (pathname, params, method = 'POST') ->
@@ -82,10 +87,15 @@ class Ioka
       options.body = JSON.stringify(params) if params
     response = await fetch url, options
     # console.log('ioka', response)
+
     json = await response.json()
-    # console.log('ioka::_request', {url, options, json})
-    if json?.code is 'Unauthorized'
-      throw new Meteor.Error(401, 'errors.unauthorized')
+    
+    if response.status isnt 200
+      console.log('ioka::_request', {url, options, json, status: response.status})
+      if json?.code is 'Unauthorized'
+        throw new Meteor.Error(401, 'errors.unauthorized')
+      else
+        throw new Meteor.Error(response.status, json.code, json.message)
     # text = await response.text()
     # replacer = (key, value) ->
     #   if value instanceof Map
