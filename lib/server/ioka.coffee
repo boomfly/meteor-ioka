@@ -56,6 +56,7 @@ class Ioka
   getPaymentById: (orderId, paymentId) -> await @_request "orders/#{orderId}/payments/#{paymentId}", {}, 'GET'
   capturePayment: (orderId, paymentId, params) -> await @_request "orders/#{orderId}/payments/#{paymentId}/capture", params, 'POST'
   cancelPayment: (orderId, paymentId, params) -> await @_request "orders/#{orderId}/payments/#{paymentId}/cancel", params, 'POST'
+  payWithCard: (orderId, params) -> await @_request "orders/#{orderId}/payments/card", params, 'POST'
 
   # Refund
   createRefund: (orderId, paymentId, params) -> await @_request "orders/#{orderId}/payments/#{paymentId}/refunds", params, 'POST'
@@ -65,6 +66,7 @@ class Ioka
   getCustomers: (params) -> await @_request "customers", params, 'GET'
   createCustomer: (params) -> await @_request "customers", params, 'POST'
   getCards: (customerId) -> await @_request "customers/#{customerId}/cards", {}, 'GET'
+  deleteCardById: (customerId, cardId) -> await @_request "customers/#{customerId}/cards/#{cardId}", {}, 'DELETE'
 
   # Private methods
 
@@ -87,16 +89,19 @@ class Ioka
     else
       options.body = JSON.stringify(params) if params
     response = await fetch url, options
-    # console.log('ioka', response)
+    console.log('ioka', response)
 
-    json = await response.json()
+    if response.status isnt 204
+      json = await response.json()
     
     if response.status isnt 200
       console.log('ioka::_request', {url, options, json, status: response.status})
       if json?.code is 'Unauthorized'
         throw new Meteor.Error(401, 'errors.unauthorized')
-      else
+      else if json
         throw new Meteor.Error(response.status, json.code, json.message)
+      else
+        throw new Meteor.Error(response.status)
     # text = await response.text()
     # replacer = (key, value) ->
     #   if value instanceof Map
