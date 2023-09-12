@@ -37,8 +37,8 @@ class Ioka
     params.currency = params.currency or config.currency
     # params.language = params.language or config.language
     response = await @_request 'orders', params, 'POST'
-    redirectUrl = @_getRedirectUrl response, params
-    response.redirectUrl = redirectUrl
+    # redirectUrl = @_getRedirectUrl response, params
+    # response.redirectUrl = redirectUrl
     response
   createOrderAccessToken: (orderId) -> await @_request "orders/#{orderId}/access-tokens", 'POST'
   getOrderById: (orderId) -> await @_request "orders/#{orderId}", {}, 'GET'
@@ -89,12 +89,14 @@ class Ioka
     else
       options.body = JSON.stringify(params) if params
     response = await fetch url, options
-    console.log('ioka', response)
+    # console.log('ioka', response)
 
-    if response.status isnt 204
-      json = await response.json()
+    if response.status is 204
+      return {}
+
+    json = await response.json()
     
-    if response.status isnt 200
+    if response.status not in [200, 201]
       console.log('ioka::_request', {url, options, json, status: response.status})
       if json?.code is 'Unauthorized'
         throw new Meteor.Error(401, 'errors.unauthorized')
