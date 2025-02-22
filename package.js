@@ -1,13 +1,13 @@
 Package.describe({
   // Short two-sentence summary
   summary: 'Meteor ioka integration',
-  version: '0.1.0',
+  version: '0.3.0',
   name: 'boomfly:meteor-ioka',
   git: 'https://github.com/boomfly/meteor-ioka'
 });
 
 Package.onUse((api) => {
-  api.use('modules');
+  // api.use('modules');
   api.use('webapp', 'server');
   api.use('underscore', 'server');
   api.use('ecmascript', 'server');
