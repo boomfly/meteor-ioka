@@ -191,10 +191,10 @@ class Ioka
 
   _registerHandler: (pathname, updateWebhook = true) ->
     config = @config()
-    handlerIndex = WebApp.rawConnectHandlers.stack.findIndex (i) => i.handler is @_handler
+    handlerIndex = WebApp.handlers.router.stack.findIndex (i) => i.handler is @_handler
     if handlerIndex > 0
-      WebApp.rawConnectHandlers.stack.splice handlerIndex, 1
-    WebApp.rawConnectHandlers.use pathname, @_handler
+      WebApp.handlers.router.stack.splice handlerIndex, 1
+    WebApp.handlers.use pathname, @_handler
     # if config.secretKey and updateWebhook
     #   @_updateWebhook pathname
 
